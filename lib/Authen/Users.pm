@@ -6,13 +6,17 @@ use strict;
 use warnings;
 use Carp;
 use vars qw($VERSION);
-$VERSION = '0.021';
+$VERSION = '0.028';
 use DBI;
 use Digest::SHA1 qw(sha1_base64);
 
 =head1 NAME
 
 Authen::Users
+
+head1 ABSTRACT
+
+Local DBI based user password authentication
 
 =head1 DESCRIPTION
 
@@ -74,18 +78,28 @@ will be created in the database.
 
 The SQL compatible table is currently as follows:
 
-=over 4
+=over 8
 
-=item groop VARCHAR(15)        Group of the user
-=item user VARCHAR(30)         User name
-=item password VARCHAR(60)     Password, as SHA1 digest
-=item fullname VARCHAR(40)     Full name of user
-=item email VARCHAR(40)        User email
-=item question VARCHAR(120)    Challenge question
-=item answer VARCHAR(80)       Challenge answer
-=item creation VARCHAR(12)     Internal use: row insertion timestamp
-=item modified VARCHAR(12)     Internal use: row modification timestamp
-=item gukey VARCHAR (46)       Internal use: key made of user and group--kept unique
+=item C<groop VARCHAR(15)>
+		Group of the user
+=item C<user VARCHAR(30)>
+		User name
+=item C<password VARCHAR(60)>
+		Password, as SHA1 digest
+=item C<fullname VARCHAR(40)>
+		Full name of user
+=item C<email VARCHAR(40)>
+		User email
+=item C<question VARCHAR(120)>
+		Challenge question
+=item C<answer VARCHAR(80)>   
+		Challenge answer
+=item C<creation VARCHAR(12)>     
+		Internal use: row insertion timestamp
+=item C<modified VARCHAR(12)>
+		Internal use: row modification timestamp
+=item C<gukey VARCHAR (46)>
+		Internal use: key made of user and group--kept unique
 
 =back
 
@@ -146,8 +160,10 @@ sub new {
 		$need_table = 0 if $tbl->{TABLE_NAME} eq $self->{authentication};
 	}
 	if($need_table) {
+		unless($self->{create}) {
+			croak "No table in database, and create not specified for new Authen::Users";
+		}
 		# try to create the table
-		#carp "Had to create the table";
 		my $ok_create = $self->{dbh}->do(<<ST_H);
 CREATE TABLE $self->{authentication} 
 ( groop VARCHAR(15), user VARCHAR(30), password VARCHAR(60), 
@@ -374,7 +390,6 @@ SELECT COUNT(password) FROM $self->{authentication} WHERE groop = ?
 ST_H
 	$count_sth->execute($group);
 	my $nrows = $count_sth->fetchrow_arrayref->[0];
-print "rows: ", $nrows, "\n";
 	$nrows = 0 if $nrows < 0;
 	return $nrows;
 }
@@ -545,9 +560,9 @@ sub g_u_key {
 =head1 BUGS
 
 On installation, "make test" may fail if Perl support for MySql or SQLite is 
-installed, but the database itself is not running, or is restricted from use 
-by the installing user. MySQl by default has a 'test' database which is used
-by under "make test." Forcing installation may work around this.
+installed, but the database itself is not running or is otherwise not available
+for use by the installing user. MySQl by default has a 'test' database which is 
+required under "make test." "Forcing" installation may work around this.
 
 =head1 AUTHOR
 

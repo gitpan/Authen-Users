@@ -9,3 +9,7 @@ Revision history for Perl module Authen::Users
 	
 0.021 Tue Feb 10 08:35:11 2004 
 	- revised docs and prerequisites
+
+0.028 Tue Feb 10 08:35:11 2004 
+	- cleaned some debugging code from routines
+	
