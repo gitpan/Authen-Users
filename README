@@ -1,11 +1,38 @@
-pod2text Authen::Users.pm > README
+NAME
 
-If this is still here it means the programmer was too lazy to create the readme file.
+Authen::Users
 
-You can create it now by using the command shown above from this directory.
+LANGUAGE
 
-At the very least you should be able to use this set of instructions
-to install the module...
+Pure Perl
+
+ABSTRACT
+
+Local DBI based user password authentication
+
+DESCRIPTION
+
+General password authentication using DBI-capable databases. Currently supports
+MySQL and SQLite databases. The default is to use a SQLite database to store 
+and access user information. 
+
+This module is not an authentication protocol. For that see something such as
+Authen::AuthenDBI.
+
+SYNOPSIS
+
+use Authen::Users;
+
+my $authen = new Athen::Users(dbtype => 'SQLite', dbname => 'mydbname');
+
+my $a_ok = $authen->authenticate($group, $user, $password);
+
+my $result = $authen->add_user(
+	$group, $user, $password, $fullname, $email, $question, $answer);
+
+
+
+Use this set of instructions to install the module...
 
 perl Makefile.PL
 make

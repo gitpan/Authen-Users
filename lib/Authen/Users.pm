@@ -6,7 +6,7 @@ use strict;
 use warnings;
 use Carp;
 use vars qw($VERSION);
-$VERSION = '0.02';
+$VERSION = '0.021';
 use DBI;
 use Digest::SHA1 qw(sha1_base64);
 
@@ -17,16 +17,15 @@ Authen::Users
 =head1 DESCRIPTION
 
 General password authentication using DBI-capable databases. Currently supports
-MySQL and SQLite databases.
-
-Default is to use a SQLite database to store and access user information. 
+MySQL and SQLite databases. The default is to use a SQLite database to store 
+and access user information. 
 
 This module is not an authentication protocol. For that see something such as
 Authen::AuthenDBI.
 
 =head1 SYNOPSIS
 
-use Authen::Users qw(:SQLite);
+use Authen::Users;
 
 my $authen = new Athen::Users(dbtype => 'SQLite', dbname => 'mydbname');
 
@@ -43,8 +42,8 @@ my $result = $authen->add_user(
 
 Create a new Authen::Users object:
 
-my $authen = new Authen::Users( { dbtype => 'SQLite', dbname => 'authen.db', create => 1,
-	authen_table => 'authen_table' } );
+my $authen = new Authen::Users( dbtype => 'SQLite', dbname => 'authen.db', create => 1,
+	authen_table => 'authen_table' );
 
 or,
 
@@ -75,16 +74,20 @@ will be created in the database.
 
 The SQL compatible table is currently as follows:
 
-groop VARCHAR(15)        Group of the user
-user VARCHAR(30)         User name
-password VARCHAR(60)     Password, as SHA1 digest
-fullname VARCHAR(40)     Full name of user
-email VARCHAR(40)        User email
-question VARCHAR(120)    Challenge question
-answer VARCHAR(80)       Challenge answer
-creation VARCHAR(12)     Internal use: row insertion timestamp
-modified VARCHAR(12)     Internal use: row modification timestamp
-gukey VARCHAR (46)		 Internal use: key made of user and group--kept unique
+=over 4
+
+=item groop VARCHAR(15)        Group of the user
+=item user VARCHAR(30)         User name
+=item password VARCHAR(60)     Password, as SHA1 digest
+=item fullname VARCHAR(40)     Full name of user
+=item email VARCHAR(40)        User email
+=item question VARCHAR(120)    Challenge question
+=item answer VARCHAR(80)       Challenge answer
+=item creation VARCHAR(12)     Internal use: row insertion timestamp
+=item modified VARCHAR(12)     Internal use: row modification timestamp
+=item gukey VARCHAR (46)       Internal use: key made of user and group--kept unique
+
+=back
 
 For convenience, the database has fields to store for each user an email address
 and a question and answer for user verification if a password is lost.
@@ -139,7 +142,6 @@ sub new {
 	# check if table exists
 	my $sth_tab = $self->{dbh}->table_info('', '', '%', '');
 	my $need_table = 1;
-print "sth_tab is", $sth_tab->rows, "\n";
 	while(my $tbl = $sth_tab->fetchrow_hashref) {
 		$need_table = 0 if $tbl->{TABLE_NAME} eq $self->{authentication};
 	}
@@ -238,7 +240,7 @@ ST_H
 	return ( $r and $r == 1 ) ? 1 : 0;
 }
 
-=item <update_user_all>
+=item B<update_user_all>
 
 Update all fields for a given group and user:
 
@@ -486,6 +488,8 @@ sub get_user_question_answer {
 
 =item B<errstr>
 
+$auth->errstr();
+
 Returns the last database error, if any.
 
 =cut
@@ -494,6 +498,22 @@ sub errstr {
 	my $self = shift;
 	return $self->{dbh}->errstr;
 }
+
+
+=item B<not_in_table>
+
+$auth->not_in_table($group, $user);
+
+True if $user in group $group is NOT already an entry. 
+Useful to rule out an existing user name when adding a user.
+
+=item B<is_in_table>
+
+$auth->is_in_table($group, $user);
+
+True if $user in group $group is already in the database.
+
+=cut 
 
 # assistance functions
 
@@ -511,7 +531,9 @@ sub is_in_table {
 	my($self, $group, $user) = @_;
 	return $self->not_in_table($group, $user) ? 0 : 1;
 }
-# internal use--not for objects
+
+#end of public interface
+# internal use--not for object use (no $self argumant)
 
 sub g_u_key {
 	my($group, $user) = @_;
@@ -519,6 +541,13 @@ sub g_u_key {
 }
 
 =back
+
+=head1 BUGS
+
+On installation, "make test" may fail if Perl support for MySql or SQLite is 
+installed, but the database itself is not running, or is restricted from use 
+by the installing user. MySQl by default has a 'test' database which is used
+by under "make test." Forcing installation may work around this.
 
 =head1 AUTHOR
 
