@@ -6,17 +6,13 @@ use strict;
 use warnings;
 use Carp;
 use vars qw($VERSION);
-$VERSION = '0.035';
+$VERSION = '0.10';
 use DBI;
 use Digest::SHA qw(sha1_base64 sha256_base64 sha384_base64 sha512_base64);
 
 =head1 NAME
 
-Authen::Users
-
-=head1 ABSTRACT
-
-DBI based user password authentication
+Authen::Users - DBI Based User Authentication
 
 =head1 DESCRIPTION
 

@@ -26,4 +26,7 @@ Revision history for Perl module Authen::Users
 
 0.035 Sat Mar 13 19:34:51 2004
 	- Win32 test issue fix
-	
+
+0.10  Thu May 27 2004
+    - Pod revisions
+    - It's working in production long and well enough to call a full 0.10	
