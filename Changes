@@ -24,3 +24,6 @@ Revision history for Perl module Authen::Users
 	- change sql call in update_user_all
 	- add password timestamp code
 
+0.035 Sat Mar 13 19:34:51 2004
+	- Win32 test issue fix
+	

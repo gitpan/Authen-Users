@@ -11,6 +11,7 @@ my $db_name = 'test';
     {
 	    eval "require DBD::MySQL;";
         skip "No DBD::MySQL", 8 if $@;
+        skip "Win32 MySQL testing issues", 8 if($^O =~ /MSWin32/i);
         my $auth = new Authen::Users( dbtype => 'MySQL', 
         	dbname => $db_name, dbuser => 'user', # dbpass => 'testing', 
         	create => 1 );
