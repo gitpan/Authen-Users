@@ -34,3 +34,5 @@ Revision history for Perl module Authen::Users
 0.11  Thu June 3 2004
     - some error checking code from code contributed by vad at lernet .ru (Thanks Vadim!)
 
+0.12  Sat Aug 14 2004
+    - POD correction

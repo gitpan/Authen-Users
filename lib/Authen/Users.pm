@@ -8,7 +8,7 @@ use Carp;
 use DBI;
 use Digest::SHA qw(sha1_base64 sha256_base64 sha384_base64 sha512_base64);
 use vars qw($VERSION);
-$VERSION = '0.11';
+$VERSION = '0.12';
 
 =head1 NAME
 
@@ -23,7 +23,7 @@ and access user information.
 This module is not an authentication protocol. For that see something such as
 Authen::AuthenDBI.
 
-head1 RATIONALE
+=head1 RATIONALE
 
 After several web sites were written which required ongoing DBI or .htpassword 
 file tweaking for user authentication, it seemed we needed a default user 
@@ -199,7 +199,7 @@ sub new {
     $self->{sqlparams} = { PrintError => 0, RaiseError => 1, AutoCommit => 1 };
     if($self->{dbtype} =~ /^MySQL/i) {
         # MySQL
-        $self->{dsn} = "dbi:mysql:$self->{dbname}";
+        $self->{dsn} = "dbi:mysql:database=$self->{dbname}";
         $self->{dsn} .= ";host=$self->{dbhost}" if $self->{dbhost};
         $self->{dbh} = DBI->connect($self->{dsn}, $self->{dbuser},
             $self->{dbpass}, $self->{sqlparams}) or croak 
