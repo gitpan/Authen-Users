@@ -6,7 +6,7 @@ use strict;
 use warnings;
 use Carp;
 use vars qw($VERSION);
-$VERSION = '0.032';
+$VERSION = '0.034';
 use DBI;
 use Digest::SHA qw(sha1_base64 sha256_base64 sha384_base64 sha512_base64);
 
@@ -44,10 +44,16 @@ my $result = $authen->add_user(
 
 =item B<new>
 
-Create a new Authen::Users object:
+Create a new Authen::Users object.
 
-# defaults: SQLIte, table authentication, SHA1 digest
 my $authen = new Authen::Users(dbname => 'Authentication');
+
+=over 4
+
+Defaults are dbname => SQLIte, authen_table => authentication, 
+create => 0 (off), digest => SHA1.
+
+=back
 
 my $authen = new Authen::Users( dbtype => 'SQLite', dbname => 'authen.db', create => 1, 
 authen_table => 'authen_table', digest => 512 );
@@ -70,7 +76,8 @@ The name of the database. Required for all database types.
 =item B<authen_table>
 
 The name of the table containing the user data. 
-
+  
+  
 NOTE: If this is omitted, defaults to a table called 'authentication' in the
 database. If the argument 'create' is passed with a true value, and the 
 authen_table argument is omitted, then a new empty table called 'authentication' 
@@ -80,40 +87,60 @@ The SQL compatible table is currently as follows:
 
 =over 8
 
-=item B<groop VARCHAR(15)>
-Group of the user
+=item C<groop VARCHAR(15)>
+ 
+Group of the user. This may signify authorization (trust) level, or could
+be used to allow one authorization database to serve several applications 
+or sites. 
 
-=item B<user VARCHAR(30)>
+=item C<user VARCHAR(30)>
+ 
 User name
 
-=item B<password VARCHAR(60)>
+=item C<password VARCHAR(60)>
+
 Password, as SHA digest
 
-=item B<fullname VARCHAR(40)>
+=item C<fullname VARCHAR(40)>
+
 Full name of user
 
-=item B<email VARCHAR(40)>
+=item C<email VARCHAR(40)>
+
 User email
 
-=item B<question VARCHAR(120)>
+=item C<question VARCHAR(120)>
+
 Challenge question
 
-=item B<answer VARCHAR(80)>   
+=item C<answer VARCHAR(80)>   
+
 Challenge answer
 
-=item B<creation VARCHAR(12)>     
-Internal use: row insertion timestamp
+=item C<creation VARCHAR(12)>     
+
+Row insertion timestamp
 
 =item C<modified VARCHAR(12)>
-Internal use: row modification timestamp
+
+Row modification timestamp
+
+=item C<pw_timestamp VARCHAR(12)>
+
+Password modification timestamp
 
 =item C<gukey VARCHAR (46)>
+
 Internal use: key made of user and group--kept unique
 
 =back
 
+=over 4  
+  
 For convenience, the database has fields to store for each user an email address
 and a question and answer for user verification if a password is lost.
+
+=back
 
 =item B<create>
 
@@ -144,8 +171,7 @@ might use long, random passwords, there is the option of up to 512-bit SHA2 dige
 =cut
 
 sub new {
-	my ($proto, %args) = @_;
-	my $class = ref($proto) || $proto;
+	my ($class, %args) = @_;
 	my $self = {};
 	bless ($self, $class);    
 	foreach( qw( dbtype dbname create dbuser dbpass dbhost authen_table digest) ) {
@@ -193,7 +219,7 @@ CREATE TABLE $self->{authentication}
 ( groop VARCHAR(15), user VARCHAR(30), password VARCHAR(60), 
 fullname VARCHAR(40), email VARCHAR(40), question VARCHAR(120),
 answer VARCHAR(80), created VARCHAR(12), modified VARCHAR(12), 
-gukey VARCHAR (46) UNIQUE )
+pw_timestamp VARCHAR(12), gukey VARCHAR (46) UNIQUE )
 ST_H
 		carp("Could not make table") unless $ok_create;
 	}
@@ -277,12 +303,13 @@ sub add_user {
 	$self->not_in_table($group, $user) or return;
 	my $insert_sth = $self->{dbh}->prepare(<<ST_H);
 INSERT INTO $self->{authentication} 
-(groop, user, password, fullname, email, question, answer, created, modified, gukey)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) 
+(groop, user, password, fullname, email, question, answer, 
+created, modified, pw_timestamp, gukey)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) 
 ST_H
 	my $t = time;
 	my $r = $insert_sth->execute( $group, $user, $self->{sha}->($password),	
-		$fullname, $email, $question, $answer, $t, $t, g_u_key($group, $user) );
+		$fullname, $email, $question, $answer, $t, $t, $t, g_u_key($group, $user) );
 	return ( $r and $r == 1 ) ? 1 : 0;
 }
 
@@ -297,14 +324,15 @@ $authen->update_user_all($group, $user, $password, $fullname, $email, $question,
 sub update_user_all {
 	my($self, $group, $user, $password, $fullname, $email, $question, $answer) = @_;
 	my $update_all_sth = $self->{dbh}->prepare(<<ST_H);
-UPDATE $self->{authentication} SET password = ?, fullname = ?, 
-email = ?, question = ?, answer = ? , modified = ?, gukey = ?
+UPDATE $self->{authentication} SET password = ?, fullname = ?, email = ?, 
+question = ?, answer = ? , modified = ?, pw_timestamp = ?, gukey = ?
 WHERE groop = ? AND user = ? 
 ST_H
 	my $t = time;
-	return ( $update_all_sth->execute( $self->{sha}->( $password), $fullname, 
-		$email, $question, $answer, $t, $group, $user, g_u_key($group, $user) ) 
-		? 1 : 0 );
+	return ( $update_all_sth->execute( $self->{sha}->
+		( $password), $fullname, $email, $question, $answer, 
+			$t, $t, g_u_key($group, $user), $group, $user ) 
+	? 1 : 0 );
 }
 
 =item B<update_user_password>
@@ -318,12 +346,12 @@ Update the password.
 sub update_user_password {
 	my($self, $group, $user, $password) = @_;
 	my $update_pw_sth = $self->{dbh}->prepare(<<ST_H);
-UPDATE $self->{authentication} SET password = ?, modified = ?,
+UPDATE $self->{authentication} SET password = ?, modified = ?, pw_timestamp = ?
 WHERE groop = ? AND user = ? 
 ST_H
 	my $t = time;
 	return ( $update_pw_sth->execute( 
-		$self->{sha}->($password),	$t, $group, $user) ? 1 : 0 );
+		$self->{sha}->($password),	$t, $t, $group, $user) ? 1 : 0 );
 }
 
 =item B<update_user_fullname>
@@ -446,7 +474,8 @@ Return a reference to a list of the information about $user in $group.
 
 sub user_info {
 	# returns an arrayref: 
-	# [groop, user, password, fullname, email, question, answer, created, modified]
+	# [ groop, user, password, fullname, email, 
+	#		question, answer, created, modified, pw_timestamp, gukey ]
 	my($self, $group, $user) = @_;
 	my $user_sth = $self->{dbh}->prepare(<<ST_H);
 SELECT * FROM $self->{authentication} WHERE groop = ? AND user = ? 
@@ -516,6 +545,23 @@ sub get_user_question_answer {
 	my($self, $group, $user) = @_;
 	my $row = $self->user_info($group, $user);
 	if($row) { return ($row->[5], $row->[6]) } else { return }
+}
+
+=item B<get_password_change_time> 
+
+$authen->get_password_change_time($group, $user) 
+	or die "Cannot retrieve password timestamp for $user in group $group: $authen->errstr";
+
+There is a timestamp associated with changes in passwords. This may be used to
+expire passwords that need to be periodically changed. The logic used to do 
+password expiration, if any, is up to the code using the module.
+
+=cut 
+
+sub get_password_change_time {
+	my($self, $group, $user) = @_;
+	my $row = $self->user_info($group, $user);
+	if($row) { return ($row->[10]) } else { return }
 }
 
 =item B<errstr>
