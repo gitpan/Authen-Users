@@ -10,6 +10,11 @@ Revision history for Perl module Authen::Users
 0.021 Tue Feb 10 08:35:11 2004 
 	- revised docs and prerequisites
 
-0.028 Tue Feb 10 08:35:11 2004 
+0.028 Wed Feb 11 08:35:11 2004 
 	- cleaned some debugging code from routines
 	
+0.030 Thu Feb 12 15:30:12 2004
+	- changed digest algorithm style to allow more options, default to 256 bits
+
+0.032 Fri Feb 13 22:56:11 2004
+	- changed a warning when user not in database during authentication

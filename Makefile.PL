@@ -5,6 +5,6 @@ WriteMakefile(
     NAME         => 'Authen::Users',
     VERSION_FROM => 'lib/Authen/Users.pm', # finds $VERSION
     AUTHOR       => 'William Hererra (whererra@skylightview.com)',
-    ABSTRACT     => 'Local SQL based user authentication.',
-    PREREQ_PM    => { DBI => 0, Digest::SHA1 => 0 },
+    ABSTRACT     => 'DBI/SQL based password authentication.',
+    PREREQ_PM    => { DBI => 0, Digest::SHA => 0, Test::More => 0 },
 );

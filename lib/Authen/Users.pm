@@ -6,17 +6,17 @@ use strict;
 use warnings;
 use Carp;
 use vars qw($VERSION);
-$VERSION = '0.028';
+$VERSION = '0.032';
 use DBI;
-use Digest::SHA1 qw(sha1_base64);
+use Digest::SHA qw(sha1_base64 sha256_base64 sha384_base64 sha512_base64);
 
 =head1 NAME
 
 Authen::Users
 
-head1 ABSTRACT
+=head1 ABSTRACT
 
-Local DBI based user password authentication
+DBI based user password authentication
 
 =head1 DESCRIPTION
 
@@ -46,14 +46,14 @@ my $result = $authen->add_user(
 
 Create a new Authen::Users object:
 
-my $authen = new Authen::Users( dbtype => 'SQLite', dbname => 'authen.db', create => 1,
-	authen_table => 'authen_table' );
+# defaults: SQLIte, table authentication, SHA1 digest
+my $authen = new Authen::Users(dbname => 'Authentication');
 
-or,
+my $authen = new Authen::Users( dbtype => 'SQLite', dbname => 'authen.db', create => 1, 
+authen_table => 'authen_table', digest => 512 );
 
 my $authen = new Authen::Users( dbtype => 'MySQL', dbname => 'authen.db', 
-	dbpass => 'myPW', authen_table => 'authen_table', 
-	dbhost => 'mysql.server.org' );
+dbpass => 'myPW', authen_table => 'authen_table', dbhost => 'mysql.server.org', digest => 256 );
 
 Takes a hash of arguments:
 
@@ -80,26 +80,35 @@ The SQL compatible table is currently as follows:
 
 =over 8
 
-=item C<groop VARCHAR(15)>
-		Group of the user
-=item C<user VARCHAR(30)>
-		User name
-=item C<password VARCHAR(60)>
-		Password, as SHA1 digest
-=item C<fullname VARCHAR(40)>
-		Full name of user
-=item C<email VARCHAR(40)>
-		User email
-=item C<question VARCHAR(120)>
-		Challenge question
-=item C<answer VARCHAR(80)>   
-		Challenge answer
-=item C<creation VARCHAR(12)>     
-		Internal use: row insertion timestamp
+=item B<groop VARCHAR(15)>
+Group of the user
+
+=item B<user VARCHAR(30)>
+User name
+
+=item B<password VARCHAR(60)>
+Password, as SHA digest
+
+=item B<fullname VARCHAR(40)>
+Full name of user
+
+=item B<email VARCHAR(40)>
+User email
+
+=item B<question VARCHAR(120)>
+Challenge question
+
+=item B<answer VARCHAR(80)>   
+Challenge answer
+
+=item B<creation VARCHAR(12)>     
+Internal use: row insertion timestamp
+
 =item C<modified VARCHAR(12)>
-		Internal use: row modification timestamp
+Internal use: row modification timestamp
+
 =item C<gukey VARCHAR (46)>
-		Internal use: key made of user and group--kept unique
+Internal use: key made of user and group--kept unique
 
 =back
 
@@ -113,12 +122,22 @@ already present when the database was opened.
 
 =item B<dbpass>
 
-The password for the account. Not used by SQLite. Generally needed otherwise.
+The password for the account. Not used by SQLite. Sometimes needed otherwise.
 
 =item B<dbhost>
 
 The name of the host for the database. Not used by SQLite. Needed if the database
 is hosted on a remote server.
+
+=item B<digest>
+
+The algorithm used for the SHA digest. Currently supports SHA1 and SHA2. 
+B<Defaults> to SHA1. Supported values are 1 for SHA1, 256 for SHA-256, 384 for SHA-384, 
+and 512 for SHA-512. See documentation for Digest::SHA for more information. Given that
+in most cases SHA1 is much more random than most user-typed passwords, any of the above 
+algorithms should be more than sufficient, since most attacks on passwords would likely be 
+dictionary-based, not purely brute force. In recognition that some uses of the package 
+might use long, random passwords, there is the option of up to 512-bit SHA2 digests.
 
 =back
 
@@ -129,12 +148,17 @@ sub new {
 	my $class = ref($proto) || $proto;
 	my $self = {};
 	bless ($self, $class);    
-	foreach( qw( dbtype dbname create dbuser dbpass dbhost authen_table ) ) {
+	foreach( qw( dbtype dbname create dbuser dbpass dbhost authen_table digest) ) {
 		if($args{$_}) { $self->{$_} = $args{$_} }
 	}
 	$self->{dbname} or croak "Cannot set up Auth::Users without a dbname: $self->{dbname}.";
 	$self->{dbtype} = 'SQLite' unless $self->{dbtype};
 	$self->{authentication} =  $self->{authen_table} || 'authentication';
+	my $algo = $self->{digest} || 1;
+	if($algo == 256) { $self->{sha} = sub { sha256_base64(shift) } }
+	elsif($algo == 384) { $self->{sha} = sub { sha384_base64(shift) } }
+	elsif($algo == 512) { $self->{sha} = sub { sha512_base64(shift) } }
+	else { $self->{sha} = sub { sha1_base64(shift) } }
 	$self->{sqlparams} = { PrintError => 0, RaiseError => 1, AutoCommit => 1 };
 	if($self->{dbtype} =~ /^MySQL/i) {
 		# MySQL
@@ -176,12 +200,14 @@ ST_H
 	return $self;
 }
 
+=item B<OBJECT METHODS>
+
 =item B<authenticate>
 
 Authenticate a user. Users may have the same user name as long as they are not 
 also in the same authentication group. Therefore, the user's group should be 
 included in all calls to authenticate the user by password. Passwords are
-stored as SHA1 digests, so the authentication is of the digests.
+stored as SHA digests, so the authentication is of the digests.
 
 =cut
 
@@ -191,9 +217,13 @@ sub authenticate {
 SELECT password FROM $self->{authentication} WHERE groop = ? AND user = ? 
 ST_H
 	$password_sth->execute($group, $user);
-	my $stored_pw_digest = $password_sth->fetchrow_arrayref->[0];
-	my $user_pw_digest = sha1_base64($password);
-	return ($user_pw_digest eq $stored_pw_digest) ? 1 : 0;
+	my $row = $password_sth->fetchrow_arrayref;
+	if($row) {
+		my $stored_pw_digest = $row->[0];
+		my $user_pw_digest = $self->{sha}->($password);
+		return 1 if($user_pw_digest eq $stored_pw_digest);
+	}
+	return 0;
 }
 
 =item B<add_user>
@@ -217,7 +247,7 @@ Scalar. User name.
 
 =item B<password>
 
-Scalar. SHA1 digest of user's password.
+Scalar. SHA digest of user's password.
 
 =item B<fullname>
 
@@ -251,7 +281,7 @@ INSERT INTO $self->{authentication}
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) 
 ST_H
 	my $t = time;
-	my $r = $insert_sth->execute( $group, $user, sha1_base64($password),	
+	my $r = $insert_sth->execute( $group, $user, $self->{sha}->($password),	
 		$fullname, $email, $question, $answer, $t, $t, g_u_key($group, $user) );
 	return ( $r and $r == 1 ) ? 1 : 0;
 }
@@ -260,8 +290,7 @@ ST_H
 
 Update all fields for a given group and user:
 
-$authen->update_user_all($group, $user, $password, $fullname, $email, $question, $answer)
-	or die "Could not update $user: " . $authen->errstr();
+$authen->update_user_all($group, $user, $password, $fullname, $email, $question, $answer) or die "Could not update $user: " . $authen->errstr();
 
 =cut
 
@@ -273,15 +302,14 @@ email = ?, question = ?, answer = ? , modified = ?, gukey = ?
 WHERE groop = ? AND user = ? 
 ST_H
 	my $t = time;
-	return ( $update_all_sth->execute( sha1_base64( $password), $fullname, 
+	return ( $update_all_sth->execute( $self->{sha}->( $password), $fullname, 
 		$email, $question, $answer, $t, $group, $user, g_u_key($group, $user) ) 
 		? 1 : 0 );
 }
 
 =item B<update_user_password>
 
-$authen->update_user_password($group, $user, $password) 
-	or die "Cannot update password for group $group and user $user: $authen->errstr";
+$authen->update_user_password($group, $user, $password) or die "Cannot update password for group $group and user $user: $authen->errstr";
 
 Update the password. 
 
@@ -295,13 +323,12 @@ WHERE groop = ? AND user = ?
 ST_H
 	my $t = time;
 	return ( $update_pw_sth->execute( 
-		sha1_base64($password),	$t, $group, $user) ? 1 : 0 );
+		$self->{sha}->($password),	$t, $group, $user) ? 1 : 0 );
 }
 
 =item B<update_user_fullname>
 
-$authen->update_user_fullname($group, $user, $fullname) 
-	or die "Cannot update fullname for group $group and user $user: $authen->errstr";
+$authen->update_user_fullname($group, $user, $fullname) or die "Cannot update fullname for group $group and user $user: $authen->errstr";
 
 Update the full name. 
 
@@ -320,8 +347,7 @@ ST_H
 
 =item B<update_user_email>
 
-$authen->update_user_email($group, $user, $email) 
-	or die "Cannot update email for group $group and user $user: $authen->errstr";
+$authen->update_user_email($group, $user, $email) or die "Cannot update email for group $group and user $user: $authen->errstr";
 
 Update the email address. 
 
@@ -339,8 +365,7 @@ ST_H
 
 =item B<update_user_question_answer>
 
-$authen->update_user_question_answer($group, $user, $question, $answer) 
-	or die "Cannot update question and answer for group $group and user $user: $authen->errstr";
+$authen->update_user_question_answer($group, $user, $question, $answer) or die "Cannot update question and answer for group $group and user $user: $authen->errstr";
 
 Update the challenge question and its answer. 
 
@@ -359,8 +384,7 @@ ST_H
 
 =item B<delete_user>
 
-$authen->delete_user($group, $user) 
-	or die "Cannot delete user in group $group with username $user: $authen->errstr";
+$authen->delete_user($group, $user) or die "Cannot delete user in group $group with username $user: $authen->errstr";
 
 Delete the user entry. 
 
@@ -376,8 +400,7 @@ ST_H
 
 =item B<count_group>
 
-$authen->count_group($group) 
-	or die "Cannot count group $group: $authen->errstr";
+$authen->count_group($group) or die "Cannot count group $group: $authen->errstr";
 
 Return the number of entries in group $group. 
 
@@ -396,8 +419,7 @@ ST_H
 
 =item B<get_group_members>
 
-$authen->get_group_members($group) 
-	or die "Cannot retrieve list of group $group: $authen->errstr";
+$authen->get_group_members($group) or die "Cannot retrieve list of group $group: $authen->errstr";
 
 Return a reference to a list of the user members of group $group. 
 
@@ -416,8 +438,7 @@ ST_H
 
 =item B<user_info>
 
-$authen->user_info($group, $user) 
-	or die "Cannot retrieve information about $user in group $group: $authen->errstr";
+$authen->user_info($group, $user) or die "Cannot retrieve information about $user in group $group: $authen->errstr";
 
 Return a reference to a list of the information about $user in $group. 
 
@@ -436,8 +457,7 @@ ST_H
 
 =item B<user_info_hashref>
 
-my $href = $authen->user_info_hashref($group, $user) 
-	or die "Cannot retrieve information about $user in group $group: $authen->errstr";
+my $href = $authen->user_info_hashref($group, $user) or die "Cannot retrieve information about $user in group $group: $authen->errstr";
 print "The email for $user in $group is $href->{email}";
 
 Return a reference to a hash of the information about $user in $group, with the field 
@@ -458,8 +478,7 @@ ST_H
 
 =item B<get_user_fullname>
 
-$authen->get_user_fullname($group, $user) 
-	or die "Cannot retrieve full name of $user in group $group: $authen->errstr";
+$authen->get_user_fullname($group, $user) or die "Cannot retrieve full name of $user in group $group: $authen->errstr";
 
 Return the user full name entry. 
 
@@ -473,8 +492,7 @@ sub get_user_fullname {
 
 =item B<get_user_email>
 
-$authen->get_user_email($group, $user) 
-	or die "Cannot retrieve email of $user in group $group: $authen->errstr";
+$authen->get_user_email($group, $user) or die "Cannot retrieve email of $user in group $group: $authen->errstr";
 
 Return the user email entry. 
 
@@ -488,8 +506,7 @@ sub get_user_email {
 
 =item B<get_user_question_answer>
 
-$authen->get_user_question_answer($group, $user) 
-	or die "Cannot retrieve question and answer for $user in group $group: $authen->errstr";
+$authen->get_user_question_answer($group, $user) or die "Cannot retrieve question and answer for $user in group $group: $authen->errstr";
 
 Return the user question and answer entries. 
 
@@ -561,7 +578,7 @@ sub g_u_key {
 
 On installation, "make test" may fail if Perl support for MySql or SQLite is 
 installed, but the database itself is not running or is otherwise not available
-for use by the installing user. MySQl by default has a 'test' database which is 
+for use by the installing user. MySql by default has a 'test' database which is 
 required under "make test." "Forcing" installation may work around this.
 
 =head1 AUTHOR
