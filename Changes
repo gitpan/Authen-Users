@@ -30,3 +30,7 @@ Revision history for Perl module Authen::Users
 0.10  Thu May 27 2004
     - Pod revisions
     - It's working in production long and well enough to call a full 0.10	
+
+0.11  Thu June 3 2004
+    - some error checking code from code contributed by vad at lernet .ru (Thanks Vadim!)
+

@@ -5,10 +5,10 @@ require 5.004;
 use strict;
 use warnings;
 use Carp;
-use vars qw($VERSION);
-$VERSION = '0.10';
 use DBI;
 use Digest::SHA qw(sha1_base64 sha256_base64 sha384_base64 sha512_base64);
+use vars qw($VERSION);
+$VERSION = '0.11';
 
 =head1 NAME
 
@@ -23,6 +23,15 @@ and access user information.
 This module is not an authentication protocol. For that see something such as
 Authen::AuthenDBI.
 
+head1 RATIONALE
+
+After several web sites were written which required ongoing DBI or .htpassword 
+file tweaking for user authentication, it seemed we needed a default user 
+password database that would contain not only the user name and password but 
+also such things as the information needed to reset lost passwords. 
+Thus, this module, designed to be as much as possible a drop-in for your
+website authorization scripting needs.
+
 =head1 SYNOPSIS
 
 use Authen::Users;
@@ -32,7 +41,7 @@ my $authen = new Athen::Users(dbtype => 'SQLite', dbname => 'mydbname');
 my $a_ok = $authen->authenticate($group, $user, $password);
 
 my $result = $authen->add_user(
-	$group, $user, $password, $fullname, $email, $question, $answer);
+    $group, $user, $password, $fullname, $email, $question, $answer);
 
 =head1 METHODS
 
@@ -51,11 +60,13 @@ create => 0 (off), digest => SHA1.
 
 =back
 
-my $authen = new Authen::Users( dbtype => 'SQLite', dbname => 'authen.db', create => 1, 
-authen_table => 'authen_table', digest => 512 );
+my $authen = new Authen::Users( dbtype => 'SQLite', dbname => 'authen.db', 
+  create => 1, authen_table => 'authen_table', digest => 512 );
 
-my $authen = new Authen::Users( dbtype => 'MySQL', dbname => 'authen.db', 
-dbpass => 'myPW', authen_table => 'authen_table', dbhost => 'mysql.server.org', digest => 256 );
+my $authen = new Authen::Users( 
+  dbtype => 'MySQL', dbname => 'authen.db', 
+  dbpass => 'myPW', authen_table => 'authen_table', 
+  dbhost => 'mysql.server.org', digest => 256 );
 
 Takes a hash of arguments:
 
@@ -63,7 +74,8 @@ Takes a hash of arguments:
 
 =item B<dbtype>
 
-The type of database. Currently supports 'SQLite' and 'MySQL'. Defaults to SQLite.
+The type of database. Currently supports 'SQLite' and 'MySQL'. 
+Defaults to SQLite.
 
 =item B<dbname>
 
@@ -133,8 +145,8 @@ Internal use: key made of user and group--kept unique
 
 =over 4  
   
-For convenience, the database has fields to store for each user an email address
-and a question and answer for user verification if a password is lost.
+For convenience, the database has fields to store for each user an email 
+address and a question and answer for user verification if a password is lost.
 
 =back
 
@@ -149,77 +161,80 @@ The password for the account. Not used by SQLite. Sometimes needed otherwise.
 
 =item B<dbhost>
 
-The name of the host for the database. Not used by SQLite. Needed if the database
-is hosted on a remote server.
+The name of the host for the database. Not used by SQLite. 
+Needed if the database is hosted on a remote server.
 
 =item B<digest>
 
 The algorithm used for the SHA digest. Currently supports SHA1 and SHA2. 
-B<Defaults> to SHA1. Supported values are 1 for SHA1, 256 for SHA-256, 384 for SHA-384, 
-and 512 for SHA-512. See documentation for Digest::SHA for more information. Given that
-in most cases SHA1 is much more random than most user-typed passwords, any of the above 
-algorithms should be more than sufficient, since most attacks on passwords would likely be 
-dictionary-based, not purely brute force. In recognition that some uses of the package 
-might use long, random passwords, there is the option of up to 512-bit SHA2 digests.
+B<Defaults> to SHA1. Supported values are 1 for SHA1, 256 for SHA-256, 
+384 for SHA-384, and 512 for SHA-512. See documentation for Digest::SHA for 
+more information. Given that in most cases SHA1 is much more random than most 
+user-typed passwords, any of the above algorithms should be more than 
+sufficient, since most attacks on passwords would likely be dictionary-based, 
+not purely brute force. In recognition that some uses of the package might use 
+long, random passwords, there is the option of up to 512-bit SHA2 digests.
 
 =back
 
 =cut
 
 sub new {
-	my ($class, %args) = @_;
-	my $self = {};
-	bless ($self, $class);    
-	foreach( qw( dbtype dbname create dbuser dbpass dbhost authen_table digest) ) {
-		if($args{$_}) { $self->{$_} = $args{$_} }
-	}
-	$self->{dbname} or croak "Cannot set up Auth::Users without a dbname: $self->{dbname}.";
-	$self->{dbtype} = 'SQLite' unless $self->{dbtype};
-	$self->{authentication} =  $self->{authen_table} || 'authentication';
-	my $algo = $self->{digest} || 1;
-	if($algo == 256) { $self->{sha} = sub { sha256_base64(shift) } }
-	elsif($algo == 384) { $self->{sha} = sub { sha384_base64(shift) } }
-	elsif($algo == 512) { $self->{sha} = sub { sha512_base64(shift) } }
-	else { $self->{sha} = sub { sha1_base64(shift) } }
-	$self->{sqlparams} = { PrintError => 0, RaiseError => 1, AutoCommit => 1 };
-	if($self->{dbtype} =~ /^MySQL/i) {
-		# MySQL
-		$self->{dsn} = "dbi:mysql:$self->{dbname}";
-    	$self->{dsn} .= ";host=$self->{dbhost}" if $self->{dbhost};
-		$self->{dbh} = DBI->connect($self->{dsn}, $self->{dbuser},
-			$self->{dbpass}, $self->{sqlparams})
-			or croak "Can't connect to MySQL database as $self->{dsn} with " .
-				"user $self->{dbuser} and given password and $self->{sqlparams}: " .
-				 DBI->errstr;
-	}
-	else { 
-		# SQLite is the default
-		$self->{dsn} = "dbi:SQLite:dbname=$self->{dbname}";
-		$self->{dbh} = DBI->connect($self->{dsn}, $self->{sqlparams})
-			or croak "Can't connect to SQLite database as $self->{dsn} with " .
-				"$self->{sqlparams}: " . DBI->errstr;	
-	}
-	# check if table exists
-	my $sth_tab = $self->{dbh}->table_info('', '', '%', '');
-	my $need_table = 1;
-	while(my $tbl = $sth_tab->fetchrow_hashref) {
-		$need_table = 0 if $tbl->{TABLE_NAME} eq $self->{authentication};
-	}
-	if($need_table) {
-		unless($self->{create}) {
-			croak "No table in database, and create not specified for new Authen::Users";
-		}
-		# try to create the table
-		my $ok_create = $self->{dbh}->do(<<ST_H);
+    my ($class, %args) = @_;
+    my $self = {};
+    bless ($self, $class);    
+    foreach my $k 
+      ( qw( dbtype dbname create dbuser dbpass dbhost authen_table digest) ) 
+       { $self->{$k} = $args{$k} if $args{$k} }
+    $self->{dbname} 
+      or croak "Cannot set up Auth::Users without a dbname: $self->{dbname}.";
+    $self->{dbtype} = 'SQLite' unless $self->{dbtype};
+    $self->{authentication} =  $self->{authen_table} || 'authentication';
+    my $algo = $self->{digest} || 1;
+    if($algo == 256) { $self->{sha} = sub { sha256_base64(shift) } }
+    elsif($algo == 384) { $self->{sha} = sub { sha384_base64(shift) } }
+    elsif($algo == 512) { $self->{sha} = sub { sha512_base64(shift) } }
+    else { $self->{sha} = sub { sha1_base64(shift) } }
+    $self->{_error} = ''; # internal error message used by error() func
+    $self->{sqlparams} = { PrintError => 0, RaiseError => 1, AutoCommit => 1 };
+    if($self->{dbtype} =~ /^MySQL/i) {
+        # MySQL
+        $self->{dsn} = "dbi:mysql:$self->{dbname}";
+        $self->{dsn} .= ";host=$self->{dbhost}" if $self->{dbhost};
+        $self->{dbh} = DBI->connect($self->{dsn}, $self->{dbuser},
+            $self->{dbpass}, $self->{sqlparams}) or croak 
+            "Can't connect to MySQL database as $self->{dsn} with " .
+            "user $self->{dbuser} and given password and $self->{sqlparams}: "
+            . DBI->errstr;
+    }
+    else { 
+        # SQLite is the default
+        $self->{dsn} = "dbi:SQLite:dbname=$self->{dbname}";
+        $self->{dbh} = DBI->connect($self->{dsn}, $self->{sqlparams})
+            or croak "Can't connect to SQLite database as $self->{dsn} with " .
+                "$self->{sqlparams}: " . DBI->errstr;    
+    }
+    # check if table exists
+    my $sth_tab = $self->{dbh}->table_info('', '', '%', '');
+    my $need_table = 1;
+    while(my $tbl = $sth_tab->fetchrow_hashref) {
+        $need_table = 0 if $tbl->{TABLE_NAME} eq $self->{authentication};
+    }
+    if($need_table) {
+        unless($self->{create}) {
+            croak "No table in database, and create not specified for new Authen::Users";
+        }
+        # try to create the table
+        my $ok_create = $self->{dbh}->do(<<ST_H);
 CREATE TABLE $self->{authentication} 
 ( groop VARCHAR(15), user VARCHAR(30), password VARCHAR(60), 
 fullname VARCHAR(40), email VARCHAR(40), question VARCHAR(120),
 answer VARCHAR(80), created VARCHAR(12), modified VARCHAR(12), 
 pw_timestamp VARCHAR(12), gukey VARCHAR (46) UNIQUE )
 ST_H
-		carp("Could not make table") unless $ok_create;
-	}
-	return $self;
+        carp("Could not make table") unless $ok_create;
+    }
+    return $self;
 }
 
 =item B<OBJECT METHODS>
@@ -234,27 +249,28 @@ stored as SHA digests, so the authentication is of the digests.
 =cut
 
 sub authenticate {
-	my($self, $group, $user, $password) = @_;
-	my $password_sth = $self->{dbh}->prepare(<<ST_H);
+    my($self, $group, $user, $password) = @_;
+    my $password_sth = $self->{dbh}->prepare(<<ST_H);
 SELECT password FROM $self->{authentication} WHERE groop = ? AND user = ? 
 ST_H
-	$password_sth->execute($group, $user);
-	my $row = $password_sth->fetchrow_arrayref;
-	if($row) {
-		my $stored_pw_digest = $row->[0];
-		my $user_pw_digest = $self->{sha}->($password);
-		return 1 if($user_pw_digest eq $stored_pw_digest);
-	}
-	return 0;
+    $password_sth->execute($group, $user);
+    my $row = $password_sth->fetchrow_arrayref;
+    if($row) {
+        my $stored_pw_digest = $row->[0];
+        my $user_pw_digest = $self->{sha}->($password);
+        return 1 if $user_pw_digest eq $stored_pw_digest;
+    }
+    return;
 }
 
 =item B<add_user>
 
-Add a user to the database.
+Add a user to the database. Synonym: B<user_add>.
 
 The arguments are as follows:
 
-$authen->add_user($group, $user, $password, $fullname, $email, $question, $answer);
+$authen->add_user($group, $user, $password, $fullname, $email, $question, $answer)
+  or die $authen->error;
 
 =over 4
 
@@ -293,21 +309,27 @@ Note: it is up to the user of the module to determine how the fields after group
 password fields are used, or if they are used at all.
 
 =cut 
-	
+    
 sub add_user {
-	my($self, $group, $user, $password, $fullname, $email, $question, $answer) = @_;
-	$self->not_in_table($group, $user) or return;
-	my $insert_sth = $self->{dbh}->prepare(<<ST_H);
+    my($self, $group, $user, $password, $fullname, $email, $question, $answer)
+      = @_;
+    $self->validate($group, $user, $password) or return;
+    $self->not_in_table($group, $user) or return;
+    my $insert_sth = $self->{dbh}->prepare(<<ST_H);
 INSERT INTO $self->{authentication} 
 (groop, user, password, fullname, email, question, answer, 
 created, modified, pw_timestamp, gukey)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) 
 ST_H
-	my $t = time;
-	my $r = $insert_sth->execute( $group, $user, $self->{sha}->($password),	
-		$fullname, $email, $question, $answer, $t, $t, $t, g_u_key($group, $user) );
-	return ( $r and $r == 1 ) ? 1 : 0;
+    my $t = time;
+    my $r = $insert_sth->execute( $group, $user, $self->{sha}->($password),    
+        $fullname, $email, $question, $answer, $t, $t, $t, g_u_key($group, $user) );
+    return 1 if $r and $r == 1;
+    $self->{_error} = $self->{dbh}->errstr;
+    return;
 }
+
+sub user_add { shift->add_user(@_) }
 
 =item B<update_user_all>
 
@@ -318,73 +340,79 @@ $authen->update_user_all($group, $user, $password, $fullname, $email, $question,
 =cut
 
 sub update_user_all {
-	my($self, $group, $user, $password, $fullname, $email, $question, $answer) = @_;
-	my $update_all_sth = $self->{dbh}->prepare(<<ST_H);
+    my($self, $group, $user, $password, $fullname, $email, $question, $answer)
+      = @_;
+    $self->validate($group, $user, $password) or return;
+    my $update_all_sth = $self->{dbh}->prepare(<<ST_H);
 UPDATE $self->{authentication} SET password = ?, fullname = ?, email = ?, 
 question = ?, answer = ? , modified = ?, pw_timestamp = ?, gukey = ?
 WHERE groop = ? AND user = ? 
 ST_H
-	my $t = time;
-	return ( $update_all_sth->execute( $self->{sha}->
-		( $password), $fullname, $email, $question, $answer, 
-			$t, $t, g_u_key($group, $user), $group, $user ) 
-	? 1 : 0 );
+    my $t = time;
+    return 1 if $update_all_sth->execute( $self->{sha}->($password), $fullname, $email, 
+      $question, $answer, $t, $t, g_u_key($group, $user), $group, $user );
+    return;
 }
 
 =item B<update_user_password>
 
-$authen->update_user_password($group, $user, $password) or die "Cannot update password for group $group and user $user: $authen->errstr";
+$authen->update_user_password($group, $user, $password) 
+  or die "Cannot update password for group $group and user $user: $authen->errstr";
 
 Update the password. 
 
 =cut
 
 sub update_user_password {
-	my($self, $group, $user, $password) = @_;
-	my $update_pw_sth = $self->{dbh}->prepare(<<ST_H);
+    my($self, $group, $user, $password) = @_;
+    $self->validate($group, $user, $password) or return;
+    my $update_pw_sth = $self->{dbh}->prepare(<<ST_H);
 UPDATE $self->{authentication} SET password = ?, modified = ?, pw_timestamp = ?
 WHERE groop = ? AND user = ? 
 ST_H
-	my $t = time;
-	return ( $update_pw_sth->execute( 
-		$self->{sha}->($password),	$t, $t, $group, $user) ? 1 : 0 );
+    my $t = time;
+    return 1 if $update_pw_sth->execute( $self->{sha}->($password), $t, $t, $group, $user );
+    return;
 }
 
 =item B<update_user_fullname>
 
-$authen->update_user_fullname($group, $user, $fullname) or die "Cannot update fullname for group $group and user $user: $authen->errstr";
+$authen->update_user_fullname($group, $user, $fullname) 
+  or die "Cannot update fullname for group $group and user $user: $authen->errstr";
 
 Update the full name. 
 
 =cut
 
 sub update_user_fullname {
-	my($self, $group, $user, $fullname) = @_;
-	my $update_fullname_sth = $self->{dbh}->prepare(<<ST_H);
+    my($self, $group, $user, $fullname) = @_;
+    my $update_fullname_sth = $self->{dbh}->prepare(<<ST_H);
 UPDATE $self->{authentication} SET fullname = ?, modified = ?,
 WHERE groop = ? AND user = ? 
 ST_H
-	my $t = time;
-	return ( $update_fullname_sth->execute($fullname, $t, $group, $user) 
-		? 1 : 0 );
+    my $t = time;
+    return 1 if $update_fullname_sth->execute($fullname, $t, $group, $user);
+    return;
 }
 
 =item B<update_user_email>
 
-$authen->update_user_email($group, $user, $email) or die "Cannot update email for group $group and user $user: $authen->errstr";
+$authen->update_user_email($group, $user, $email) 
+  or die "Cannot update email for group $group and user $user: $authen->errstr";
 
 Update the email address. 
 
 =cut
 
 sub update_user_email {
-	my($self, $group, $user, $email) = @_;
-	my $update_email_sth = $self->{dbh}->prepare(<<ST_H);
+    my($self, $group, $user, $email) = @_;
+    my $update_email_sth = $self->{dbh}->prepare(<<ST_H);
 UPDATE $self->{authentication} SET email = ? , modified = ?,
 WHERE groop = ? AND user = ? 
 ST_H
-	my $t = time;	
-	return ( $update_email_sth->execute($email,	$t, $group, $user) ? 1 : 0 );
+    my $t = time;    
+    return 1 if $update_email_sth->execute($email, $t, $group, $user);
+    return;
 }
 
 =item B<update_user_question_answer>
@@ -396,14 +424,14 @@ Update the challenge question and its answer.
 =cut
 
 sub update_user_question_answer {
-	my($self, $group, $user, $question, $answer) = @_;
-	my $update_additional_sth = $self->{dbh}->prepare(<<ST_H);
+    my($self, $group, $user, $question, $answer) = @_;
+    my $update_additional_sth = $self->{dbh}->prepare(<<ST_H);
 UPDATE $self->{authentication} SET question = ?, answer = ? , 
 modified = ? WHERE groop = ? AND user = ? 
 ST_H
-	my $t = time;
-	return ( $update_additional_sth->execute($question, $answer, $t, $group, $user)
-		? 1 : 0 );
+    my $t = time;
+    return 1 if $update_additional_sth->execute($question, $answer, $t, $group, $user);
+    return;
 }
 
 =item B<delete_user>
@@ -415,11 +443,12 @@ Delete the user entry.
 =cut
 
 sub delete_user {
-	my($self, $group, $user) = @_;
-	my $delete_sth = $self->{dbh}->prepare(<<ST_H);
+    my($self, $group, $user) = @_;
+    my $delete_sth = $self->{dbh}->prepare(<<ST_H);
 DELETE FROM $self->{authentication} WHERE groop = ? AND user = ? 
 ST_H
-	return ( $delete_sth->execute( $group, $user ) ? 1 : 0 );	
+    return 1 if $delete_sth->execute( $group, $user );
+    return;
 }
 
 =item B<count_group>
@@ -431,14 +460,14 @@ Return the number of entries in group $group.
 =cut
 
 sub count_group {
-	my ($self, $group) = @_;
-	my $count_sth = $self->{dbh}->prepare(<<ST_H);
+    my ($self, $group) = @_;
+    my $count_sth = $self->{dbh}->prepare(<<ST_H);
 SELECT COUNT(password) FROM $self->{authentication} WHERE groop = ? 
 ST_H
-	$count_sth->execute($group);
-	my $nrows = $count_sth->fetchrow_arrayref->[0];
-	$nrows = 0 if $nrows < 0;
-	return $nrows;
+    $count_sth->execute($group);
+    my $nrows = $count_sth->fetchrow_arrayref->[0];
+    $nrows = 0 if $nrows < 0;
+    return $nrows;
 }
 
 =item B<get_group_members>
@@ -450,14 +479,14 @@ Return a reference to a list of the user members of group $group.
 =cut
 
 sub get_group_members {
-	my ($self, $group) = @_;
-	my($row, @members);
-	my $members_sth = $self->{dbh}->prepare(<<ST_H);
+    my ($self, $group) = @_;
+    my($row, @members);
+    my $members_sth = $self->{dbh}->prepare(<<ST_H);
 SELECT user FROM $self->{authentication} WHERE groop = ? 
 ST_H
-	$members_sth->execute( $group );
-	while($row = $members_sth->fetch) { push @members, $row->[0] }
-	return \@members;
+    $members_sth->execute( $group );
+    while($row = $members_sth->fetch) { push @members, $row->[0] }
+    return \@members;
 }
 
 =item B<user_info>
@@ -469,15 +498,15 @@ Return a reference to a list of the information about $user in $group.
 =cut
 
 sub user_info {
-	# returns an arrayref: 
-	# [ groop, user, password, fullname, email, 
-	#		question, answer, created, modified, pw_timestamp, gukey ]
-	my($self, $group, $user) = @_;
-	my $user_sth = $self->{dbh}->prepare(<<ST_H);
+    # returns an arrayref: 
+    # [ groop, user, password, fullname, email, 
+    #        question, answer, created, modified, pw_timestamp, gukey ]
+    my($self, $group, $user) = @_;
+    my $user_sth = $self->{dbh}->prepare(<<ST_H);
 SELECT * FROM $self->{authentication} WHERE groop = ? AND user = ? 
 ST_H
-	$user_sth->execute( $group, $user );
-	return $user_sth->fetch;
+    $user_sth->execute( $group, $user );
+    return $user_sth->fetch;
 }
 
 =item B<user_info_hashref>
@@ -491,14 +520,14 @@ names as keys of the hash.
 =cut
 
 sub user_info_hashref {
-	# returns a hashref: 
-	# {groop => $group, user => $user, password => $password, etc. }
-	my($self, $group, $user) = @_;
-	my $user_sth = $self->{dbh}->prepare(<<ST_H);
+    # returns a hashref: 
+    # {groop => $group, user => $user, password => $password, etc. }
+    my($self, $group, $user) = @_;
+    my $user_sth = $self->{dbh}->prepare(<<ST_H);
 SELECT * FROM $self->{authentication} WHERE groop = ? AND user = ? 
 ST_H
-	$user_sth->execute( $group, $user );
-	return $user_sth->fetchrow_hashref;
+    $user_sth->execute( $group, $user );
+    return $user_sth->fetchrow_hashref;
 }
 
 =item B<get_user_fullname>
@@ -510,9 +539,10 @@ Return the user full name entry.
 =cut
 
 sub get_user_fullname {
-	my($self, $group, $user) = @_;
-	my $row = $self->user_info($group, $user);
-	if($row) { return $row->[3] } else { return }
+    my($self, $group, $user) = @_;
+    my $row = $self->user_info($group, $user);
+    return $row->[3] if $row;
+    return;
 }
 
 =item B<get_user_email>
@@ -524,9 +554,10 @@ Return the user email entry.
 =cut
 
 sub get_user_email {
-	my($self, $group, $user) = @_;
-	my $row = $self->user_info($group, $user);
-	if($row) { return $row->[4] } else { return }
+    my($self, $group, $user) = @_;
+    my $row = $self->user_info($group, $user);
+    return $row->[4] if $row;
+    return;
 }
 
 =item B<get_user_question_answer>
@@ -538,15 +569,16 @@ Return the user question and answer entries.
 =cut
 
 sub get_user_question_answer {
-	my($self, $group, $user) = @_;
-	my $row = $self->user_info($group, $user);
-	if($row) { return ($row->[5], $row->[6]) } else { return }
+    my($self, $group, $user) = @_;
+    my $row = $self->user_info($group, $user);
+    return ($row->[5], $row->[6]) if $row;
+    return;
 }
 
 =item B<get_password_change_time> 
 
 $authen->get_password_change_time($group, $user) 
-	or die "Cannot retrieve password timestamp for $user in group $group: $authen->errstr";
+    or die "Cannot retrieve password timestamp for $user in group $group: $authen->errstr";
 
 There is a timestamp associated with changes in passwords. This may be used to
 expire passwords that need to be periodically changed. The logic used to do 
@@ -555,24 +587,37 @@ password expiration, if any, is up to the code using the module.
 =cut 
 
 sub get_password_change_time {
-	my($self, $group, $user) = @_;
-	my $row = $self->user_info($group, $user);
-	if($row) { return ($row->[10]) } else { return }
+    my($self, $group, $user) = @_;
+    my $row = $self->user_info($group, $user);
+    return $row->[10] if $row;
+    return;
 }
 
 =item B<errstr>
 
-$auth->errstr();
+print $auth->errstr();
 
 Returns the last database error, if any.
+
+=item B<error>
+
+print $auth->error;
+
+Returns the last class internal error message, if any; if none, returns the 
+last database DBI error, if any.
+
 
 =cut
 
 sub errstr {
-	my $self = shift;
-	return $self->{dbh}->errstr;
+    my $self = shift;
+    return $self->{dbh}->errstr;
 }
 
+sub error { 
+    my $self = shift;
+    return $self->{_error} || $self->{dbh}->errstr;
+}
 
 =item B<not_in_table>
 
@@ -589,29 +634,49 @@ True if $user in group $group is already in the database.
 
 =cut 
 
+# validation routine for adding users, etc.
+sub validate {
+    my($self, $group, $user, $password) = @_;
+    unless ($group){
+         $self->{_error} = "Group is not defined.";
+         return;
+     }
+     unless ($user){
+         $self->{_error} = "Username is not defined.";
+         return;
+     }
+     unless ($password){
+         $self->{_error} = "Password is not defined.";
+         return;
+     }
+     return 1;
+}
+
 # assistance functions
 
 sub not_in_table {
-	my($self, $group, $user) = @_;
-	my $unique_sth = $self->{dbh}->prepare(<<ST_H);
+    my($self, $group, $user) = @_;
+    my $unique_sth = $self->{dbh}->prepare(<<ST_H);
 SELECT password FROM $self->{authentication} WHERE gukey = ? 
 ST_H
-	$unique_sth->execute(g_u_key($group, $user));
-	my @row = $unique_sth->fetchrow_array;
-	return (@row) ? 0 : 1;
+    $unique_sth->execute(g_u_key($group, $user));
+    my @row = $unique_sth->fetchrow_array;
+    return if @row;
+    return 1;
 }
 
 sub is_in_table {
-	my($self, $group, $user) = @_;
-	return $self->not_in_table($group, $user) ? 0 : 1;
+    my($self, $group, $user) = @_;
+    return if $self->not_in_table($group, $user);
+    return 1;
 }
 
 #end of public interface
-# internal use--not for object use (no $self argumant)
+# internal use--not for object use (no $self argument)
 
 sub g_u_key {
-	my($group, $user) = @_;
-	return $group . '|' . $user;
+    my($group, $user) = @_;
+    return $group . '|' . $user;
 }
 
 =back
