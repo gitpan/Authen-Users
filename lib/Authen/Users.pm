@@ -6,7 +6,7 @@ use strict;
 use warnings;
 use Carp;
 use vars qw($VERSION);
-$VERSION = '0.01_01';
+$VERSION = '0.02';
 use DBI;
 use Digest::SHA1 qw(sha1_base64);
 
@@ -76,14 +76,15 @@ will be created in the database.
 The SQL compatible table is currently as follows:
 
 groop VARCHAR(15)        Group of the user
-user VARCHAR(30)          User name
-password VARCHAR(15)      Password, as SHA1 digest
+user VARCHAR(30)         User name
+password VARCHAR(60)     Password, as SHA1 digest
 fullname VARCHAR(40)     Full name of user
 email VARCHAR(40)        User email
 question VARCHAR(120)    Challenge question
 answer VARCHAR(80)       Challenge answer
 creation VARCHAR(12)     Internal use: row insertion timestamp
 modified VARCHAR(12)     Internal use: row modification timestamp
+gukey VARCHAR (46)		 Internal use: key made of user and group--kept unique
 
 For convenience, the database has fields to store for each user an email address
 and a question and answer for user verification if a password is lost.
@@ -138,6 +139,7 @@ sub new {
 	# check if table exists
 	my $sth_tab = $self->{dbh}->table_info('', '', '%', '');
 	my $need_table = 1;
+print "sth_tab is", $sth_tab->rows, "\n";
 	while(my $tbl = $sth_tab->fetchrow_hashref) {
 		$need_table = 0 if $tbl->{TABLE_NAME} eq $self->{authentication};
 	}
@@ -146,9 +148,10 @@ sub new {
 		#carp "Had to create the table";
 		my $ok_create = $self->{dbh}->do(<<ST_H);
 CREATE TABLE $self->{authentication} 
-( groop VARCHAR(15), user VARCHAR(30), password VARCHAR(15), 
+( groop VARCHAR(15), user VARCHAR(30), password VARCHAR(60), 
 fullname VARCHAR(40), email VARCHAR(40), question VARCHAR(120),
-answer VARCHAR(80), created VARCHAR(12), modified VARCHAR(12) ); 
+answer VARCHAR(80), created VARCHAR(12), modified VARCHAR(12), 
+gukey VARCHAR (46) UNIQUE )
 ST_H
 		carp("Could not make table") unless $ok_create;
 	}
@@ -167,7 +170,7 @@ stored as SHA1 digests, so the authentication is of the digests.
 sub authenticate {
 	my($self, $group, $user, $password) = @_;
 	my $password_sth = $self->{dbh}->prepare(<<ST_H);
-SELECT password FROM $self->{authentication} WHERE groop == ? AND user == ?  ;
+SELECT password FROM $self->{authentication} WHERE groop = ? AND user = ? 
 ST_H
 	$password_sth->execute($group, $user);
 	my $stored_pw_digest = $password_sth->fetchrow_arrayref->[0];
@@ -223,24 +226,15 @@ password fields are used, or if they are used at all.
 	
 sub add_user {
 	my($self, $group, $user, $password, $fullname, $email, $question, $answer) = @_;
-	# check if there is anyone already by that name 
-	my $check_sth = $self->{dbh}->prepare(<<ST_H);
-SELECT COUNT(*) FROM $self->{authentication} 
-WHERE groop = ? AND user = ? ;
-ST_H
-	$check_sth->execute( $group, $user );
-	if($check_sth->rows > 0) {
-		carp("Already an enry in $group with name $user: cannot insert");
-		return;
-	}
+	$self->not_in_table($group, $user) or return;
 	my $insert_sth = $self->{dbh}->prepare(<<ST_H);
 INSERT INTO $self->{authentication} 
-(groop, user, password, fullname, email, question, answer, created, modified)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ;
+(groop, user, password, fullname, email, question, answer, created, modified, gukey)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) 
 ST_H
 	my $t = time;
-	my $r = $insert_sth->execute($group, $user, 
-		sha1_base64($password),	$fullname, $email, $question, $answer, $t, $t);
+	my $r = $insert_sth->execute( $group, $user, sha1_base64($password),	
+		$fullname, $email, $question, $answer, $t, $t, g_u_key($group, $user) );
 	return ( $r and $r == 1 ) ? 1 : 0;
 }
 
@@ -257,12 +251,12 @@ sub update_user_all {
 	my($self, $group, $user, $password, $fullname, $email, $question, $answer) = @_;
 	my $update_all_sth = $self->{dbh}->prepare(<<ST_H);
 UPDATE $self->{authentication} SET password = ?, fullname = ?, 
-email = ?, question = ?, answer = ? , modified = ?,
-WHERE groop = ? AND user = ? ;
+email = ?, question = ?, answer = ? , modified = ?, gukey = ?
+WHERE groop = ? AND user = ? 
 ST_H
 	my $t = time;
-	return ( $update_all_sth->execute( 
-		sha1_base64($password),	$fullname, $email, $question, $answer, $t, $group, $user) 
+	return ( $update_all_sth->execute( sha1_base64( $password), $fullname, 
+		$email, $question, $answer, $t, $group, $user, g_u_key($group, $user) ) 
 		? 1 : 0 );
 }
 
@@ -279,7 +273,7 @@ sub update_user_password {
 	my($self, $group, $user, $password) = @_;
 	my $update_pw_sth = $self->{dbh}->prepare(<<ST_H);
 UPDATE $self->{authentication} SET password = ?, modified = ?,
-WHERE groop = ? AND user = ? ;
+WHERE groop = ? AND user = ? 
 ST_H
 	my $t = time;
 	return ( $update_pw_sth->execute( 
@@ -299,7 +293,7 @@ sub update_user_fullname {
 	my($self, $group, $user, $fullname) = @_;
 	my $update_fullname_sth = $self->{dbh}->prepare(<<ST_H);
 UPDATE $self->{authentication} SET fullname = ?, modified = ?,
-WHERE groop = ? AND user = ? ;
+WHERE groop = ? AND user = ? 
 ST_H
 	my $t = time;
 	return ( $update_fullname_sth->execute($fullname, $t, $group, $user) 
@@ -319,7 +313,7 @@ sub update_user_email {
 	my($self, $group, $user, $email) = @_;
 	my $update_email_sth = $self->{dbh}->prepare(<<ST_H);
 UPDATE $self->{authentication} SET email = ? , modified = ?,
-WHERE groop = ? AND user = ? ;
+WHERE groop = ? AND user = ? 
 ST_H
 	my $t = time;	
 	return ( $update_email_sth->execute($email,	$t, $group, $user) ? 1 : 0 );
@@ -338,7 +332,7 @@ sub update_user_question_answer {
 	my($self, $group, $user, $question, $answer) = @_;
 	my $update_additional_sth = $self->{dbh}->prepare(<<ST_H);
 UPDATE $self->{authentication} SET question = ?, answer = ? , 
-modified = ? WHERE groop = ? AND user = ? ;
+modified = ? WHERE groop = ? AND user = ? 
 ST_H
 	my $t = time;
 	return ( $update_additional_sth->execute($question, $answer, $t, $group, $user)
@@ -357,7 +351,7 @@ Delete the user entry.
 sub delete_user {
 	my($self, $group, $user) = @_;
 	my $delete_sth = $self->{dbh}->prepare(<<ST_H);
-DELETE FROM $self->{authentication} WHERE groop = ? AND user = ? ;
+DELETE FROM $self->{authentication} WHERE groop = ? AND user = ? 
 ST_H
 	return ( $delete_sth->execute( $group, $user ) ? 1 : 0 );	
 }
@@ -374,7 +368,7 @@ Return the number of entries in group $group.
 sub count_group {
 	my ($self, $group) = @_;
 	my $count_sth = $self->{dbh}->prepare(<<ST_H);
-SELECT COUNT(password) FROM $self->{authentication} WHERE groop = ? ;
+SELECT COUNT(password) FROM $self->{authentication} WHERE groop = ? 
 ST_H
 	$count_sth->execute($group);
 	my $nrows = $count_sth->fetchrow_arrayref->[0];
@@ -396,7 +390,7 @@ sub get_group_members {
 	my ($self, $group) = @_;
 	my($row, @members);
 	my $members_sth = $self->{dbh}->prepare(<<ST_H);
-SELECT user FROM $self->{authentication} WHERE groop = ? ;
+SELECT user FROM $self->{authentication} WHERE groop = ? 
 ST_H
 	$members_sth->execute( $group );
 	while($row = $members_sth->fetch) { push @members, $row->[0] }
@@ -417,7 +411,7 @@ sub user_info {
 	# [groop, user, password, fullname, email, question, answer, created, modified]
 	my($self, $group, $user) = @_;
 	my $user_sth = $self->{dbh}->prepare(<<ST_H);
-SELECT * FROM $self->{authentication} WHERE groop = ? AND user = ? ;
+SELECT * FROM $self->{authentication} WHERE groop = ? AND user = ? 
 ST_H
 	$user_sth->execute( $group, $user );
 	return $user_sth->fetch;
@@ -439,7 +433,7 @@ sub user_info_hashref {
 	# {groop => $group, user => $user, password => $password, etc. }
 	my($self, $group, $user) = @_;
 	my $user_sth = $self->{dbh}->prepare(<<ST_H);
-SELECT * FROM $self->{authentication} WHERE groop = ? AND user = ? ;
+SELECT * FROM $self->{authentication} WHERE groop = ? AND user = ? 
 ST_H
 	$user_sth->execute( $group, $user );
 	return $user_sth->fetchrow_hashref;
@@ -499,6 +493,29 @@ Returns the last database error, if any.
 sub errstr {
 	my $self = shift;
 	return $self->{dbh}->errstr;
+}
+
+# assistance functions
+
+sub not_in_table {
+	my($self, $group, $user) = @_;
+	my $unique_sth = $self->{dbh}->prepare(<<ST_H);
+SELECT password FROM $self->{authentication} WHERE gukey = ? 
+ST_H
+	$unique_sth->execute(g_u_key($group, $user));
+	my @row = $unique_sth->fetchrow_array;
+	return (@row) ? 0 : 1;
+}
+
+sub is_in_table {
+	my($self, $group, $user) = @_;
+	return $self->not_in_table($group, $user) ? 0 : 1;
+}
+# internal use--not for objects
+
+sub g_u_key {
+	my($group, $user) = @_;
+	return $group . '|' . $user;
 }
 
 =back

@@ -6,4 +6,4 @@ Changes
 lib/Authen/Users.pm
 t/test1.t
 Makefile.PL
-META.yml                                Module meta-data (added by MakeMaker)
+META.yml                                 Module meta-data (added by MakeMaker)
