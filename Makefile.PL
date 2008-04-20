@@ -7,4 +7,5 @@ WriteMakefile(
     AUTHOR       => 'William Hererra (whererra@skylightview.com)',
     ABSTRACT     => 'DBI/SQL based password authentication.',
     PREREQ_PM    => { DBI => 0, Digest::SHA => 0, Test::More => 0 },
+    LICENSE      => 'perl',
 );

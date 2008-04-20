@@ -1,13 +1,16 @@
-# http://module-build.sourceforge.net/META-spec.html
-#XXXXXXX This is a prototype!!!  It will change in the future!!! XXXXX#
-name:         Authen-Users
-version:      0.12
-version_from: lib/Authen/Users.pm
-installdirs:  site
-requires:
+--- #YAML:1.0
+name:                Authen-Users
+version:             0.14
+abstract:            DBI/SQL based password authentication.
+license:             perl
+author:              
+    - William Hererra (whererra@skylightview.com)
+generated_by:        ExtUtils::MakeMaker version 6.42_01
+distribution_type:   module
+requires:     
     DBI:                           0
     Digest::SHA:                   0
     Test::More:                    0
-
-distribution_type: module
-generated_by: ExtUtils::MakeMaker version 6.17
+meta-spec:
+    url:     http://module-build.sourceforge.net/META-spec-v1.3.html
+    version: 1.3

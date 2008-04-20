@@ -36,3 +36,7 @@ Revision history for Perl module Authen::Users
 
 0.12  Sat Aug 14 2004
     - POD correction
+
+0.14  Sun 20 April 2008
+    - POD revisions, tests for POD
+
