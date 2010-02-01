@@ -8,7 +8,7 @@ use Carp;
 use DBI;
 use Digest::SHA qw(sha1_base64 sha256_base64 sha384_base64 sha512_base64);
 use vars qw($VERSION);
-$VERSION = '0.14';
+$VERSION = '0.15';
 
 sub new {
     my ( $class, %args ) = @_;
@@ -62,7 +62,7 @@ sub new {
     }
 
     # check if table exists
-    my $sth_tab = $self->{dbh}->table_info( '', '', '%', '' );
+    my $sth_tab = $self->{dbh}->table_info();
     my $need_table = 1;
     while ( my $tbl = $sth_tab->fetchrow_hashref ) {
         $need_table = 0 if $tbl->{TABLE_NAME} eq $self->{authentication};

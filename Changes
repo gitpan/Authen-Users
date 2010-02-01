@@ -39,4 +39,8 @@ Revision history for Perl module Authen::Users
 
 0.14  Sun 20 April 2008
     - POD revisions, tests for POD
+    
+0.15  Fri 29 Jan 2010
+    - fix for new DBD::SQLite version table_info defaults, thanks to Eric E.
+
 

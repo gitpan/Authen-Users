@@ -1,11 +1,11 @@
 --- #YAML:1.0
 name:                Authen-Users
-version:             0.14
+version:             0.15
 abstract:            DBI/SQL based password authentication.
 license:             perl
 author:              
     - William Hererra (whererra@skylightview.com)
-generated_by:        ExtUtils::MakeMaker version 6.42_01
+generated_by:        ExtUtils::MakeMaker version 6.42
 distribution_type:   module
 requires:     
     DBI:                           0
