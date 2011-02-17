@@ -43,4 +43,6 @@ Revision history for Perl module Authen::Users
 0.15  Fri 29 Jan 2010
     - fix for new DBD::SQLite version table_info defaults, thanks to Eric E.
 
+0.16  Wed 16 Feb 2011
+    - add random salt to digest methods
 

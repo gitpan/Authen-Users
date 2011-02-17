@@ -8,7 +8,7 @@ use Carp;
 use DBI;
 use Digest::SHA qw(sha1_base64 sha256_base64 sha384_base64 sha512_base64);
 use vars qw($VERSION);
-$VERSION = '0.15';
+$VERSION = '0.16';
 
 sub new {
     my ( $class, %args ) = @_;
@@ -23,6 +23,7 @@ sub new {
       or croak "Cannot set up Auth::Users without a dbname: $self->{dbname}.";
     $self->{dbtype} = 'SQLite' unless $self->{dbtype};
     $self->{authentication} = $self->{authen_table} || 'authentication';
+    $self->{make_salt} = 1 unless $self->{NO_SALT};
     my $algo = $self->{digest} || 1;
     if ( $algo == 256 ) {
         $self->{sha} = sub { sha256_base64(shift) }
@@ -76,10 +77,10 @@ sub new {
         # try to create the table
         my $ok_create = $self->{dbh}->do(<<ST_H);
 CREATE TABLE $self->{authentication} 
-( groop VARCHAR(15), user VARCHAR(30), password VARCHAR(60), 
+( groop VARCHAR(15), user VARCHAR(30), password VARCHAR(60),
 fullname VARCHAR(40), email VARCHAR(40), question VARCHAR(120),
 answer VARCHAR(80), created VARCHAR(12), modified VARCHAR(12), 
-pw_timestamp VARCHAR(12), gukey VARCHAR (46) UNIQUE )
+pw_timestamp VARCHAR(12), salt VARCHAR(10), gukey VARCHAR (46) UNIQUE )
 ST_H
         carp("Could not make table") unless $ok_create;
     }
@@ -89,13 +90,16 @@ ST_H
 sub authenticate {
     my ( $self, $group, $user, $password ) = @_;
     my $password_sth = $self->{dbh}->prepare(<<ST_H);
-SELECT password FROM $self->{authentication} WHERE groop = ? AND user = ? 
+SELECT password, salt FROM $self->{authentication} WHERE groop = ? AND user = ? 
 ST_H
     $password_sth->execute( $group, $user );
     my $row = $password_sth->fetchrow_arrayref;
     if ($row) {
         my $stored_pw_digest = $row->[0];
-        my $user_pw_digest   = $self->{sha}->($password);
+        my $salt = $row->[1];
+        my $user_pw_digest   = ($salt)
+          ?  $self->{sha}->($password, $salt)
+          :  $self->{sha}->($password);
         return 1 if $user_pw_digest eq $stored_pw_digest;
     }
     return;
@@ -106,15 +110,23 @@ sub add_user {
         $answer ) = @_;
     $self->validate( $group, $user, $password ) or return;
     $self->not_in_table( $group, $user ) or return;
+    my $salt = 0;
+    if($self->{make_salt}) {
+		$salt = $self->{sha}->( time + rand(10000) );
+		$salt = substr( $salt, -8 );
+	}
+	my $password_sha = ($salt) 
+	  ? $self->{sha}->($password, $salt) 
+	  : $self->{sha}->{password};
     my $insert_sth = $self->{dbh}->prepare(<<ST_H);
 INSERT INTO $self->{authentication} 
 (groop, user, password, fullname, email, question, answer, 
-created, modified, pw_timestamp, gukey)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) 
+created, modified, pw_timestamp, salt, gukey)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) 
 ST_H
     my $t = time;
-    my $r = $insert_sth->execute( $group, $user, $self->{sha}->($password),
-        $fullname, $email, $question, $answer, $t, $t, $t,
+    my $r = $insert_sth->execute( $group, $user, $password_sha,
+        $fullname, $email, $question, $answer, $t, $t, $t, $salt,
         _g_u_key( $group, $user ) );
     return 1 if $r and $r == 1;
     $self->{_error} = $self->{dbh}->errstr;
@@ -127,17 +139,24 @@ sub update_user_all {
     my ( $self, $group, $user, $password, $fullname, $email, $question,
         $answer ) = @_;
     $self->validate( $group, $user, $password ) or return;
+    my $salt = 0;
+    if($self->{make_salt}) {
+		$salt = $self->{sha}->( time + rand(10000) );
+		$salt = substr( $salt, -8 );
+	}
+	my $password_sha = ($salt) 
+	  ? $self->{sha}->($password, $salt) 
+	  : $self->{sha}->{password};
     my $update_all_sth = $self->{dbh}->prepare(<<ST_H);
 UPDATE $self->{authentication} SET password = ?, fullname = ?, email = ?, 
-question = ?, answer = ? , modified = ?, pw_timestamp = ?, gukey = ?
+question = ?, answer = ? , modified = ?, pw_timestamp = ?, salt = ?, gukey = ?
 WHERE groop = ? AND user = ? 
 ST_H
     my $t = time;
     return 1
       if $update_all_sth->execute(
-        $self->{sha}->($password),
-        $fullname, $email, $question, $answer, $t, $t, _g_u_key( $group, $user ),
-        $group, $user
+        $password_sha, $fullname, $email, $question, $answer, 
+        $t, $t, $salt, _g_u_key( $group, $user ), $group, $user
       );
     return;
 }
@@ -145,14 +164,23 @@ ST_H
 sub update_user_password {
     my ( $self, $group, $user, $password ) = @_;
     $self->validate( $group, $user, $password ) or return;
+    my $salt = 0;
+    if($self->{make_salt}) {
+		$salt = $self->{sha}->( time + rand(10000) );
+		$salt = substr( $salt, -8 );
+	}
+	my $password_sha = ($salt) 
+	  ? $self->{sha}->($password, $salt) 
+	  : $self->{sha}->{password};
     my $update_pw_sth = $self->{dbh}->prepare(<<ST_H);
-UPDATE $self->{authentication} SET password = ?, modified = ?, pw_timestamp = ?
+UPDATE $self->{authentication} SET password = ?, modified = ?, pw_timestamp = ?,
+  salt = ?
 WHERE groop = ? AND user = ? 
 ST_H
     my $t = time;
     return 1
-      if $update_pw_sth->execute( $self->{sha}->($password),
-        $t, $t, $group, $user );
+      if $update_pw_sth->execute( $password_sha, 
+        $t, $t, $salt, $group, $user );
     return;
 }
 
@@ -226,7 +254,7 @@ sub user_info {
 
     # returns an arrayref:
     # [ groop, user, password, fullname, email,
-    #        question, answer, created, modified, pw_timestamp, gukey ]
+    #        question, answer, created, modified, pw_timestamp, salt, gukey ]
     my ( $self, $group, $user ) = @_;
     my $user_sth = $self->{dbh}->prepare(<<ST_H);
 SELECT * FROM $self->{authentication} WHERE groop = ? AND user = ? 
@@ -271,7 +299,7 @@ sub get_user_question_answer {
 sub get_password_change_time {
     my ( $self, $group, $user ) = @_;
     my $row = $self->user_info( $group, $user );
-    return $row->[10] if $row;
+    return $row->[9] if $row;
     return;
 }
 
@@ -357,6 +385,11 @@ website authorization scripting needs.
 use Authen::Users;
 
 my $authen = new Athen::Users(dbtype => 'SQLite', dbname => 'mydbname');
+
+// for backward compatibility use the call below:
+my $authen = new Athen::Users(
+  dbtype => 'SQLite', dbname => 'mydbname', NO_SALT => 1 );
+
 
 my $a_ok = $authen->authenticate($group, $user, $password);
 
@@ -496,6 +529,14 @@ not purely brute force. In recognition that some uses of the package might use
 long, random passwords, there is the option of up to 512-bit SHA2 digests.
 
 =back
+
+=item <BREAK WITH BACKWARD COMPATIBILITY IN VERSION 0.16 and above>
+
+In version 0.16 and above, a random salt is added to the digest in order
+to partially defeat hacking passwords with pre-computed rainbow tables.
+To use later versions of Authen::Users with older SQL tables created by
+previous versions, you MUST specify the named parameter NO_SALT => 1
+in your call to new.
 
 =item B<OBJECT METHODS>
 
