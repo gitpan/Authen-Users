@@ -23,7 +23,7 @@ sub new {
       or croak "Cannot set up Auth::Users without a dbname: $self->{dbname}.";
     $self->{dbtype} = 'SQLite' unless $self->{dbtype};
     $self->{authentication} = $self->{authen_table} || 'authentication';
-    $self->{make_salt} = 1 unless $self->{NO_SALT};
+    $self->{make_salt} = 1 unless $args{NO_SALT};
     my $algo = $self->{digest} || 1;
     if ( $algo == 256 ) {
         $self->{sha} = sub { sha256_base64(shift) }
