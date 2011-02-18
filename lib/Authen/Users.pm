@@ -8,7 +8,7 @@ use Carp;
 use DBI;
 use Digest::SHA qw(sha1_base64 sha256_base64 sha384_base64 sha512_base64);
 use vars qw($VERSION);
-$VERSION = '0.16';
+$VERSION = '0.17';
 
 sub new {
     my ( $class, %args ) = @_;
@@ -110,24 +110,36 @@ sub add_user {
         $answer ) = @_;
     $self->validate( $group, $user, $password ) or return;
     $self->not_in_table( $group, $user ) or return;
+    my $r;
     my $salt = 0;
     if($self->{make_salt}) {
 		$salt = $self->{sha}->( time + rand(10000) );
 		$salt = substr( $salt, -8 );
-	}
-	my $password_sha = ($salt) 
-	  ? $self->{sha}->($password, $salt) 
-	  : $self->{sha}->{password};
-    my $insert_sth = $self->{dbh}->prepare(<<ST_H);
+		my $password_sha = $self->{sha}->($password, $salt); 
+        my $insert_sth = $self->{dbh}->prepare(<<ST_H);
 INSERT INTO $self->{authentication} 
 (groop, user, password, fullname, email, question, answer, 
 created, modified, pw_timestamp, salt, gukey)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) 
 ST_H
-    my $t = time;
-    my $r = $insert_sth->execute( $group, $user, $password_sha,
+       my $t = time;
+       $r = $insert_sth->execute( $group, $user, $password_sha,
         $fullname, $email, $question, $answer, $t, $t, $t, $salt,
         _g_u_key( $group, $user ) );
+    }
+    else {
+		my $password_sha = $self->{sha}->($password); 
+        my $insert_sth = $self->{dbh}->prepare(<<ST_H);
+INSERT INTO $self->{authentication} 
+(groop, user, password, fullname, email, question, answer, 
+created, modified, pw_timestamp, gukey)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) 
+ST_H
+       my $t = time;
+       $r = $insert_sth->execute( $group, $user, $password_sha,
+        $fullname, $email, $question, $answer, $t, $t, $t,
+        _g_u_key( $group, $user ) );
+	}
     return 1 if $r and $r == 1;
     $self->{_error} = $self->{dbh}->errstr;
     return;
@@ -143,21 +155,33 @@ sub update_user_all {
     if($self->{make_salt}) {
 		$salt = $self->{sha}->( time + rand(10000) );
 		$salt = substr( $salt, -8 );
-	}
-	my $password_sha = ($salt) 
-	  ? $self->{sha}->($password, $salt) 
-	  : $self->{sha}->{password};
-    my $update_all_sth = $self->{dbh}->prepare(<<ST_H);
+		my $password_sha = $self->{sha}->($password, $salt);
+		my $update_all_sth = $self->{dbh}->prepare(<<ST_H);
 UPDATE $self->{authentication} SET password = ?, fullname = ?, email = ?, 
 question = ?, answer = ? , modified = ?, pw_timestamp = ?, salt = ?, gukey = ?
 WHERE groop = ? AND user = ? 
 ST_H
-    my $t = time;
-    return 1
-      if $update_all_sth->execute(
-        $password_sha, $fullname, $email, $question, $answer, 
-        $t, $t, $salt, _g_u_key( $group, $user ), $group, $user
-      );
+		my $t = time;
+		return 1
+		if $update_all_sth->execute(
+          $password_sha, $fullname, $email, $question, $answer, 
+          $t, $t, $salt, _g_u_key( $group, $user ), $group, $user
+		);
+    }
+    else {
+		my $password_sha = $self->{sha}->{password};
+		my $update_all_sth = $self->{dbh}->prepare(<<ST_H);
+UPDATE $self->{authentication} SET password = ?, fullname = ?, email = ?, 
+question = ?, answer = ? , modified = ?, pw_timestamp = ?, gukey = ?
+WHERE groop = ? AND user = ? 
+ST_H
+		my $t = time;
+		return 1
+		  if $update_all_sth->execute(
+          $password_sha, $fullname, $email, $question, $answer, 
+          $t, $t, _g_u_key( $group, $user ), $group, $user
+		);
+	}
     return;
 }
 
@@ -168,19 +192,28 @@ sub update_user_password {
     if($self->{make_salt}) {
 		$salt = $self->{sha}->( time + rand(10000) );
 		$salt = substr( $salt, -8 );
-	}
-	my $password_sha = ($salt) 
-	  ? $self->{sha}->($password, $salt) 
-	  : $self->{sha}->{password};
-    my $update_pw_sth = $self->{dbh}->prepare(<<ST_H);
+		my $password_sha = $self->{sha}->($password, $salt);
+		my $update_pw_sth = $self->{dbh}->prepare(<<ST_H);
 UPDATE $self->{authentication} SET password = ?, modified = ?, pw_timestamp = ?,
   salt = ?
 WHERE groop = ? AND user = ? 
 ST_H
-    my $t = time;
-    return 1
-      if $update_pw_sth->execute( $password_sha, 
-        $t, $t, $salt, $group, $user );
+		my $t = time;
+		return 1
+		  if $update_pw_sth->execute( $password_sha, 
+			$t, $t, $salt, $group, $user );
+    }
+    else {
+		my $password_sha = $self->{sha}->{password};
+		my $update_pw_sth = $self->{dbh}->prepare(<<ST_H);
+UPDATE $self->{authentication} SET password = ?, modified = ?, pw_timestamp = ?
+WHERE groop = ? AND user = ? 
+ST_H
+		my $t = time;
+		return 1
+		if $update_pw_sth->execute( $password_sha, 
+          $t, $t, $group, $user );
+	}
     return;
 }
 
@@ -530,7 +563,7 @@ long, random passwords, there is the option of up to 512-bit SHA2 digests.
 
 =back
 
-=item <BREAK WITH BACKWARD COMPATIBILITY IN VERSION 0.16 and above>
+=item B<BREAK WITH BACKWARD COMPATIBILITY IN VERSION 0.16 AND ABOVE>
 
 In version 0.16 and above, a random salt is added to the digest in order
 to partially defeat hacking passwords with pre-computed rainbow tables.

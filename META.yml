@@ -1,6 +1,6 @@
 --- #YAML:1.0
 name:               Authen-Users
-version:            0.16
+version:            0.17
 abstract:           DBI/SQL based password authentication.
 author:
     - William Hererra (whererra@skylightview.com)

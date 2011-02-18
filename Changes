@@ -46,3 +46,6 @@ Revision history for Perl module Authen::Users
 0.16  Wed 16 Feb 2011
     - add random salt to digest methods
 
+0.17  Fri 18 Feb 2011
+	- backward compatibility additions
+
